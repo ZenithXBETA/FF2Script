@@ -1,0 +1,1996 @@
+if getgenv().eclipsehub then warn("YxuSinX is already executed") return end
+getgenv().eclipsehub = true
+
+loadstring([[
+    function LPH_NO_VIRTUALIZE(f) return f end;
+]])()
+
+-- Safe services acquisition
+local function SafeGetService(serviceName)
+    local success, service = pcall(function()
+        return game:GetService(serviceName)
+    end)
+
+    if success then
+        return service
+    end
+
+    return nil
+end
+
+-- Initialize services with error handling
+local debris = SafeGetService("Debris") or {}
+local contentProvider = SafeGetService("ContentProvider") or {}
+local scriptContext = SafeGetService("ScriptContext") or {}
+local players = SafeGetService("Players") or {}
+local tweenService = SafeGetService("TweenService") or {}
+local statsService = SafeGetService("Stats") or {}
+local runService = SafeGetService("RunService") or {}
+local userInputService = SafeGetService("UserInputService") or {}
+local replicatedStorage = SafeGetService("ReplicatedStorage") or {}
+local httpService = SafeGetService("HttpService") or {}
+local starterGui = SafeGetService("StarterGui") or {}
+
+-- Safely get player
+local player = players.LocalPlayer
+-- Wait for LocalPlayer if not found initially
+if not player then
+    local isLoaded = false
+    local connection
+    connection = players:GetPropertyChangedSignal("LocalPlayer"):Connect(function()
+        if players.LocalPlayer then
+            player = players.LocalPlayer
+            isLoaded = true
+            if connection then
+                connection:Disconnect()
+            end
+        end
+    end)
+
+    -- Timeout after 10 seconds
+    local timeout = tick() + 10
+    repeat task.wait() until isLoaded or tick() > timeout
+
+    -- Final attempt to get player
+    player = players.LocalPlayer or {
+        -- Create default table if player is still nil
+        GetMouse = function() return {Button1Down = {Connect = function() end}} end,
+        Character = nil,
+        CharacterAdded = {Connect = function() end}
+    }
+end
+
+-- Safely get mouse and camera
+local mouse = player:GetMouse()
+local camera = workspace.CurrentCamera
+
+-- Safely find values
+local values = nil
+pcall(function()
+    values = replicatedStorage:FindFirstChild("Values")
+end)
+
+-- Detect game state
+local IS_PRACTICE = pcall(function() return game.PlaceId == 8206123457 end) and game.PlaceId == 8206123457 or false
+local IS_SOLARA = pcall(function() return string.match(getexecutorname(), "Solara") end) and string.match(getexecutorname(), "Solara") or false
+local AC_BYPASS = IS_PRACTICE
+
+-- Initialize shared tables
+local moveToUsing = {}
+local pullVectoredBalls = {}
+local velocity = {}
+local fakeBalls = {}
+local HandshakeInts = {}
+local Hooks = {}
+local boundaries = {}
+
+-- Create values folder if needed
+if not values or IS_PRACTICE then
+    pcall(function()
+        if replicatedStorage:FindFirstChild("Values") then
+            replicatedStorage:FindFirstChild("Values"):Destroy()
+        end
+    end)
+
+    values = Instance.new("Folder")
+    local status = Instance.new("StringValue")
+    status.Name = "Status"
+    status.Value = "InPlay"
+    status.Parent = values
+    values.Parent = replicatedStorage
+    values.Name = "Values"
+end
+
+-- Set up LPH virtualization
+if not LPH_OBFUSCATED then
+    getfenv().LPH_NO_VIRTUALIZE = function(f) return f end
+end
+
+-- Find remotes safely
+local Handshake = nil
+pcall(function()
+    Handshake = replicatedStorage.Remotes.CharacterSoundEvent
+end)
+
+-- Anti-cheat bypass with error handling
+pcall(function()
+    LPH_NO_VIRTUALIZE(function()
+        for i, v in getgc() do
+            if typeof(v) == "function" and islclosure(v) then
+                pcall(function()
+                    if (#getprotos(v) == 1) and table.find(getconstants(getproto(v, 1)), 4000001) then
+                        hookfunction(v, function() end)
+                    end
+                end)
+            end
+        end
+    end)()
+end)
+
+-- Hook namecall method safely
+pcall(function()
+    Hooks.__namecall = hookmetamethod(game, "__namecall", LPH_NO_VIRTUALIZE(function(self, ...)
+        local Method = getnamecallmethod()
+        local Args = {...}
+
+        if not checkcaller() and Handshake and (self == Handshake) and (Method == "fireServer") and Args[1] and (string.find(Args[1], "AC")) then
+            if (#HandshakeInts == 0) then
+                HandshakeInts = {table.unpack(Args[2], 2, 18)}
+            else
+                for i, v in HandshakeInts do
+                    Args[2][i + 1] = v
+                end
+            end
+        end
+
+        return Hooks.__namecall(self, ...)
+    end))
+end)
+
+task.wait(1)
+
+-- Create folder if needed
+if not isfolder("eclipsehub") then
+    pcall(function()
+        makefolder("eclipsehub")
+    end)
+end
+
+-- Initialize performance counters
+local ping = 0
+local fps = 0
+
+-- Forward declarations for functions that will be used later
+local findPossessor
+local findClosestBall
+local beamProjectile
+local getNearestPartToPartFromParts
+
+-- Load Fluent UI Library with error handling
+local Fluent, SaveManager, InterfaceManager
+
+-- Create a safe loader function
+local function SafeHttpGet(url, fallback)
+    local success, result = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if success then
+        -- Try to load the result
+        local loadSuccess, loadedResult = pcall(function()
+            return loadstring(result)()
+        end)
+        if loadSuccess then
+            return loadedResult
+        end
+    end
+    -- Return fallback if something fails
+    if fallback and type(fallback) == "function" then
+        return fallback()
+    end
+    return {}
+end
+
+-- Safely load required libraries
+Fluent = SafeHttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua", function()
+    return {
+        CreateWindow = function() return {AddTab = function() return {} end} end,
+        Options = {},
+        Notify = function() end
+    }
+end)
+
+SaveManager = SafeHttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua", function()
+    return {
+        SetLibrary = function() end,
+        IgnoreThemeSettings = function() end,
+        SetFolder = function() end,
+        SetIgnoreIndexes = function() end,
+        BuildConfigSection = function() end,
+        LoadConfiguration = function() end,
+        SaveConfiguration = function() return true end
+    }
+end)
+
+InterfaceManager = SafeHttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua", function()
+    return {
+        SetLibrary = function() end,
+        SetFolder = function() end,
+        BuildInterfaceSection = function() end
+    }
+end)
+
+-- Show welcome notification with error handling
+pcall(function()
+    Fluent:Notify({
+        Title = "YxuSinX",
+        Content = "Successfully loaded FF2 script",
+        Duration = 5
+    })
+end)
+
+-- Create the main window with enhanced error handling
+local Window
+pcall(function()
+    Window = Fluent:CreateWindow({
+        Title = "YxuSinX - Football Fusion 2",
+        SubTitle = "by Veylo",
+        TabWidth = 160,
+        Size = UDim2.fromOffset(595, 365),
+        Acrylic = true,
+        Theme = "Dark",
+        MinimizeKey = Enum.KeyCode.LeftControl,
+        CanResize = true,
+        ScrollSpeed = 30,
+        ScrollingEnabled = true
+    })
+end)
+
+-- Default window if creation fails
+if not Window then
+    Window = {
+        AddTab = function() return {
+            AddToggle = function() return {OnChanged = function() end} end,
+            AddSlider = function() return {OnChanged = function() end} end,
+            AddDropdown = function() return {OnChanged = function() end} end,
+            AddKeybind = function() return {OnChanged = function() end} end,
+            AddButton = function() return {OnChanged = function() end} end,
+            AddParagraph = function() end
+        } end,
+        SelectTab = function() end
+    }
+end
+
+-- Create tabs with enforced scrolling and error handling
+local Tabs = {
+    Catching = {},
+    Physics = {},
+    Auto = {},
+    Throwing = {},
+    Player = {},
+    Settings = {}
+}
+
+pcall(function()
+    Tabs.Catching = Window:AddTab({ Title = "Catching", Icon = "radio", ScrollingEnabled = true })
+    Tabs.Physics = Window:AddTab({ Title = "Physics", Icon = "rocket", ScrollingEnabled = true })
+    Tabs.Auto = Window:AddTab({ Title = "Auto", Icon = "bot", ScrollingEnabled = true })
+    Tabs.Throwing = Window:AddTab({ Title = "Throwing", Icon = "send", ScrollingEnabled = true })
+    Tabs.Player = Window:AddTab({ Title = "Player", Icon = "user", ScrollingEnabled = true })
+    Tabs.Settings = Window:AddTab({ Title = "Settings", Icon = "settings", ScrollingEnabled = true })
+end)
+
+-- Options storage for value references
+local Options = Fluent.Options or {}
+
+-- Define core utility functions
+function getPing()
+    if not statsService.PerformanceStats then return 0 end
+    local success, result = pcall(function()
+        return statsService.PerformanceStats.Ping:GetValue()
+    end)
+    return success and result or 0
+end
+
+function getServerPing()
+    if not statsService.Network then return 0 end
+    local success, result = pcall(function()
+        return statsService.Network.ServerStatsItem['Data Ping']:GetValue()
+    end)
+    return success and result or 0
+end
+
+findClosestBall = function()
+    local lowestDistance = math.huge
+    local nearestBall = nil
+
+    local character = player.Character
+    if not character then return nil end
+
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    for _, ball in pairs(workspace:GetChildren()) do
+        if ball.Name ~= "Football" then continue end
+        if not ball:IsA("BasePart") then continue end
+
+        local distance = (ball.Position - hrp.Position).Magnitude
+
+        if distance < lowestDistance then
+            nearestBall = ball
+            lowestDistance = distance
+        end
+    end
+
+    return nearestBall
+end
+
+findPossessor = function()
+    for _, plr in pairs(players:GetPlayers()) do
+        local character = plr.Character
+        if not character then continue end
+
+        if character:FindFirstChildWhichIsA("Tool") then
+            return character
+        end
+    end
+    return nil
+end
+
+getNearestPartToPartFromParts = function(part, parts)
+    local lowestDistance = math.huge
+    local nearestPart = nil
+
+    for _, p in pairs(parts) do
+        if not p then continue end
+
+        local distance = (part.Position - p.Position).Magnitude
+
+        if distance < lowestDistance then
+            nearestPart = p
+            lowestDistance = distance
+        end
+    end
+
+    return nearestPart
+end
+
+beamProjectile = function(g, v0, x0, t1)
+    -- Handle invalid parameters
+    if not g or not v0 or not x0 or not t1 then return 0, 0, CFrame.new(), CFrame.new() end
+
+    local c = 0.5*0.5*0.5;
+    local p3 = 0.5*g*t1*t1 + v0*t1 + x0;
+    local p2 = p3 - (g*t1*t1 + v0*t1)/3;
+    local p1 = (c*g*t1*t1 + 0.5*v0*t1 + x0 - c*(x0+p3))/(3*c) - p2;
+
+    -- Use pcall to handle math errors
+    local success, curve0 = pcall(function() return (p1 - x0).magnitude end)
+    local success2, curve1 = pcall(function() return (p2 - p3).magnitude end)
+
+    if not success or not success2 then
+        return 0, 0, CFrame.new(), CFrame.new()
+    end
+
+    local b, r1, u1, r2, u2
+
+    -- Handle unit vector calculation errors
+    pcall(function()
+        b = (x0 - p3).unit
+        r1 = (p1 - x0).unit
+        u1 = r1:Cross(b).unit
+        r2 = (p2 - p3).unit
+        u2 = r2:Cross(b).unit
+        b = u1:Cross(r1).unit
+    end)
+
+    if not b or not r1 or not u1 or not r2 or not u2 then
+        return 0, 0, CFrame.new(), CFrame.new()
+    end
+
+    local cf1 = CFrame.new(
+        x0.x, x0.y, x0.z,
+        r1.x, u1.x, b.x,
+        r1.y, u1.y, b.y,
+        r1.z, u1.z, b.z
+    )
+
+    local cf2 = CFrame.new(
+        p3.x, p3.y, p3.z,
+        r2.x, u2.x, b.x,
+        r2.y, u2.y, b.y,
+        r2.z, u2.z, b.z
+    )
+
+    return curve0, -curve1, cf1, cf2
+end
+
+-- Create hitbox part for mags with proper initialization
+local part = Instance.new("Part")
+part.Transparency = 0.6
+part.Anchored = true
+part.CanCollide = false
+part.CastShadow = false
+part.Color = Color3.fromRGB(85, 170, 255) -- Light blue color
+part.Shape = Enum.PartType.Ball -- Make it a sphere
+part.Material = Enum.Material.ForceField
+-- Don't parent initially to avoid errors
+part.Parent = nil
+
+-- Update ping value with error handling
+task.spawn(function()
+    while true do
+        local success = pcall(function()
+            ping = (getPing() + getServerPing()) / 1000
+        end)
+        if not success then
+            ping = 0
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- Update FPS counter with error handling
+task.spawn(function()
+    pcall(function()
+        runService.RenderStepped:Connect(function()
+            fps += 1
+            task.delay(1, function()
+                fps -= 1
+            end)
+        end)
+    end)
+end)
+
+-- Get boundaries if not in practice mode (with error handling)
+if not IS_PRACTICE then
+    pcall(function()
+        for _, part in pairs(workspace.Models.Boundaries:GetChildren()) do
+            boundaries[#boundaries + 1] = part
+        end
+    end)
+end
+
+-- Variable for player state tracking
+local isCatching = false
+
+-- Physics Tab UI Elements with enhanced sliders
+local QuickTPToggle, QuickTPSpeed, QuickTPBind
+local ClickTackleAimbotToggle, ClickTackleAimbotDistance
+local AntiJamToggle, AntiBlockToggle
+local VisualizeBallPathToggle, NoJumpCooldownToggle, NoFreezeToggle
+local OptimalJumpToggle, OptimalJumpType, NoBallTrailToggle
+local BigHeadToggle, BigHeadSize
+local TackleExtenderToggle, TackleExtenderRadius
+local BlockExtenderToggle, BlockExtenderRange, BlockExtenderTransparency
+local FlyToggle, FlySpeedSlider
+
+pcall(function()
+    -- QuickTP Feature
+    QuickTPToggle = Tabs.Physics:AddToggle("QuickTP", {
+        Title = "Quick TP",
+        Default = false,
+        Description = "Teleport quickly in the direction you're moving"
+    })
+
+    QuickTPSpeed = Tabs.Physics:AddSlider("QuickTPSpeed", {
+        Title = "Speed",
+        Description = "QuickTP speed multiplier",
+        Default = 3,
+        Min = 1,
+        Max = 5,
+        Rounding = 1 -- Changed from 0 to 1 for smoother operation
+    })
+
+    QuickTPBind = Tabs.Physics:AddKeybind("QuickTPBind", {
+        Title = "Keybind",
+        Default = "F",
+        Mode = "Toggle",
+        Description = "Key to activate Quick TP"
+    })
+
+    -- Click Tackle Aimbot
+    ClickTackleAimbotToggle = Tabs.Physics:AddToggle("ClickTackleAimbot", {
+        Title = "Click Tackle Aimbot",
+        Default = false,
+        Description = "Teleport to the ball carrier when clicking"
+    })
+
+    ClickTackleAimbotDistance = Tabs.Physics:AddSlider("ClickTackleAimbotDistance", {
+        Title = "Distance",
+        Description = "Maximum teleport distance",
+        Default = 7,
+        Min = 0,
+        Max = 15,
+        Rounding = 1 -- Changed to 1 for smoother operation
+    })
+
+    -- Anti Jam/Block toggles
+    AntiJamToggle = Tabs.Physics:AddToggle("AntiJam", {
+        Title = "Anti Jam",
+        Default = false,
+        Description = "Prevents you from getting jammed"
+    })
+
+    AntiBlockToggle = Tabs.Physics:AddToggle("AntiBlock", {
+        Title = "Anti Block",
+        Default = false,
+        Description = "Prevents players from blocking you"
+    })
+
+    -- Visualize Ball Path
+    VisualizeBallPathToggle = Tabs.Physics:AddToggle("VisualizeBallPath", {
+        Title = "Visualize Ball Path",
+        Default = false,
+        Description = "Shows the path of the ball"
+    })
+
+    -- No Jump Cooldown
+    NoJumpCooldownToggle = Tabs.Physics:AddToggle("NoJumpCooldown", {
+        Title = "No Jump Cooldown",
+        Default = false,
+        Description = "Removes the cooldown between jumps"
+    })
+
+    -- No Freeze
+    NoFreezeToggle = Tabs.Physics:AddToggle("NoFreeze", {
+        Title = "No Freeze",
+        Default = false,
+        Description = "Prevents movement freezing"
+    })
+
+    -- Optimal Jump
+    OptimalJumpToggle = Tabs.Physics:AddToggle("OptimalJump", {
+        Title = "Optimal Jump",
+        Default = false,
+        Description = "Shows the best position to jump for catches"
+    })
+
+    OptimalJumpType = Tabs.Physics:AddDropdown("OptimalJumpType", {
+        Title = "Type",
+        Values = {"Jump", "Dive"},
+        Default = "Jump",
+        Description = "Jump or dive indicator"
+    })
+
+    -- No Ball Trail
+    NoBallTrailToggle = Tabs.Physics:AddToggle("NoBallTrail", {
+        Title = "No Ball Trail",
+        Default = false,
+        Description = "Removes the trail behind the ball"
+    })
+
+    -- Big Head
+    BigHeadToggle = Tabs.Physics:AddToggle("BigHead", {
+        Title = "Big Head",
+        Default = false,
+        Description = "Increases the size of player heads"
+    })
+
+    BigHeadSize = Tabs.Physics:AddSlider("BigHeadSize", {
+        Title = "Size",
+        Description = "Head size multiplier",
+        Default = 3,
+        Min = 1,
+        Max = 5,
+        Rounding = 1 -- Changed from 0 to 1 for smoother operation
+    })
+end)
+
+-- Add tackle extender if firetouchinterest is available and not Solara
+if firetouchinterest and not IS_SOLARA then
+    pcall(function()
+        TackleExtenderToggle = Tabs.Physics:AddToggle("TackleExtender", {
+            Title = "Tackle Extender",
+            Default = false,
+            Description = "Extends your tackle reach"
+        })
+
+        TackleExtenderRadius = Tabs.Physics:AddSlider("TackleExtenderRadius", {
+            Title = "Radius",
+            Description = "Tackle extension distance",
+            Default = 5,
+            Min = 0,
+            Max = 10,
+            Rounding = 1 -- Changed from 0 to 1 for smoother operation
+        })
+    end)
+
+    -- Enhanced error handling in the TackleExtender loop
+    task.spawn(function()
+        while true do
+            task.wait()
+
+            -- Validate necessary conditions with better error handling
+            local possessor = findPossessor()
+            local character = player.Character
+
+            -- Don't continue if any critical condition isn't met
+            if not character or not possessor or not Options.TackleExtender or not Options.TackleExtender.Value then
+                continue
+            end
+
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            local possessorHrp = possessor:FindFirstChild("HumanoidRootPart")
+
+            if not hrp or not possessorHrp then
+                continue
+            end
+
+            local distance = (hrp.Position - possessorHrp.Position).Magnitude
+
+            if not Options.TackleExtenderRadius or distance > Options.TackleExtenderRadius.Value then
+                continue
+            end
+
+            -- Safely touch parts with error handling
+            for _, part in pairs(possessor:GetChildren()) do
+                if not part:IsA("BasePart") then continue end
+
+                local characterPart = character:FindFirstChild(part.Name)
+                if not characterPart then continue end
+
+                pcall(function()
+                    firetouchinterest(characterPart, part, 0)
+                    firetouchinterest(characterPart, part, 1)
+                end)
+            end
+        end
+    end)
+end
+
+-- Add extra features if AC_BYPASS is true
+if AC_BYPASS then
+    pcall(function()
+        BlockExtenderToggle = Tabs.Physics:AddToggle("BlockExtender", {
+            Title = "Block Extender",
+            Default = false,
+            Description = "Extends your blocking range"
+        })
+
+        BlockExtenderRange = Tabs.Physics:AddSlider("BlockExtenderRange", {
+            Title = "Range",
+            Description = "Block extension distance",
+            Default = 10,
+            Min = 1,
+            Max = 20,
+            Rounding = 1 -- Changed from 0 to 1 for smoother operation
+        })
+
+        BlockExtenderTransparency = Tabs.Physics:AddSlider("BlockExtenderTransparency", {
+            Title = "Transparency",
+            Description = "Visual transparency of block zone",
+            Default = 1,
+            Min = 0,
+            Max = 1,
+            Rounding = 1 -- Already was 1
+        })
+    end)
+
+    -- Fly functionality
+    local flying = false
+    local flySpeed = 1
+
+    pcall(function()
+        FlyToggle = Tabs.Physics:AddToggle("Fly", {
+            Title = "Fly",
+            Default = false,
+            Description = "Enables flight mode"
+        })
+
+        FlySpeedSlider = Tabs.Physics:AddSlider("FlySpeed", {
+            Title = "Speed",
+            Description = "Flying speed multiplier",
+            Default = 3,
+            Min = 1,
+            Max = IS_PRACTICE and 20 or 5,
+            Rounding = 1 -- Changed from 0 to 1 for smoother operation
+        })
+    end)
+
+    -- Safe FlyToggle assignment with error handling
+    if FlyToggle then
+        pcall(function()
+            FlyToggle:OnChanged(function(Value)
+                flying = Value
+
+                if Value then
+                    local character = player.Character
+                    if not character then return end
+
+                    local humanoid = character:FindFirstChild("Humanoid")
+                    local hrp = character:FindFirstChild("HumanoidRootPart")
+
+                    if not humanoid or not hrp then return end
+
+                    humanoid.PlatformStand = true
+
+                    -- Create body velocity with error handling
+                    local bodyVelocity
+                    pcall(function()
+                        bodyVelocity = Instance.new("BodyVelocity", hrp)
+                        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                    end)
+
+                    -- Create body gyro with error handling
+                    local bodyGyro
+                    pcall(function()
+                        bodyGyro = Instance.new("BodyGyro", hrp)
+                        bodyGyro.P = 15000
+                        bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                    end)
+
+                    task.spawn(function()
+                        while flying and character and character:FindFirstChild("Humanoid") and character:FindFirstChild("HumanoidRootPart") do
+                            local success = pcall(function()
+                                if not bodyVelocity or not bodyGyro then return end
+
+                                runService.Stepped:wait()
+                                local speed = 11 + ((flySpeed or 1) * 2.5)
+                                local camera = workspace.CurrentCamera
+                                local endPos = camera.CFrame.Position + camera.CFrame.LookVector * 500
+                                bodyGyro.CFrame = CFrame.new(character.HumanoidRootPart.Position, endPos)
+                                local velocity = Vector3.new(0, 0, 0)
+
+                                if not userInputService:GetFocusedTextBox() then
+                                    if userInputService:IsKeyDown(Enum.KeyCode.W) then
+                                        velocity += camera.CFrame.LookVector * speed
+                                    end
+                                    if userInputService:IsKeyDown(Enum.KeyCode.S) then
+                                        velocity += camera.CFrame.LookVector * -speed
+                                    end
+                                    if userInputService:IsKeyDown(Enum.KeyCode.A) then
+                                        velocity += character.HumanoidRootPart.CFrame:vectorToWorldSpace(Vector3.new(-speed, 0, 0))
+                                    end
+                                    if userInputService:IsKeyDown(Enum.KeyCode.D) then
+                                        velocity += character.HumanoidRootPart.CFrame:vectorToWorldSpace(Vector3.new(speed, 0, 0))
+                                    end
+                                end
+
+                                if character.Humanoid.Health <= 0 then
+                                    flying = false
+                                end
+
+                                bodyVelocity.Velocity = velocity
+                            end)
+
+                            if not success then
+                                flying = false
+                                break
+                            end
+
+                            task.wait()
+                        end
+
+                        -- Clean up with error handling
+                        pcall(function()
+                            if character and character:FindFirstChild("Humanoid") then
+                                character.Humanoid.PlatformStand = false
+                            end
+
+                            if bodyGyro and bodyGyro.Parent then
+                                bodyGyro:Destroy()
+                            end
+
+                            if bodyVelocity and bodyVelocity.Parent then
+                                bodyVelocity:Destroy()
+                            end
+                        end)
+                    end)
+                end
+            end)
+
+            if FlySpeedSlider then
+                FlySpeedSlider:OnChanged(function(Value)
+                    flySpeed = Value
+                end)
+            end
+        end)
+    end
+
+    -- Block extender size updater with proper error handling
+    task.spawn(function()
+        while true do
+            task.wait()
+
+            -- Safely get character and block part
+            local character
+            pcall(function() character = player.Character end)
+
+            if not character then continue end
+
+            local blockPart
+            pcall(function() blockPart = character:FindFirstChild("BlockPart") end)
+
+            if not blockPart then continue end
+
+            -- Safely modify block part with error handling
+            pcall(function()
+                if Options.BlockExtender and Options.BlockExtender.Value and Options.BlockExtenderRange then
+                    blockPart.Size = Vector3.new(
+                        Options.BlockExtenderRange.Value,
+                        Options.BlockExtenderRange.Value,
+                        Options.BlockExtenderRange.Value
+                    )
+
+                    if Options.BlockExtenderTransparency then
+                        blockPart.Transparency = Options.BlockExtenderTransparency.Value
+                    end
+                else
+                    blockPart.Size = Vector3.new(0.75, 5, 1.5)
+                    blockPart.Transparency = 1
+                end
+            end)
+        end
+    end)
+end
+
+-- QuickTP feature handler
+local quickTPCooldown = os.clock()
+
+-- Handle QuickTP input with error handling
+userInputService.InputBegan:Connect(function(input, gp)
+    pcall(function()
+        if gp then return end
+        if not Options.QuickTPBind or input.KeyCode ~= Options.QuickTPBind.Value then return end
+
+        local character = player.Character
+        if not character then return end
+
+        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character:FindFirstChild("Humanoid")
+
+        if not Options.QuickTP or not Options.QuickTP.Value then return end
+        if not humanoidRootPart or not humanoid then return end
+        if (os.clock() - quickTPCooldown) < 0.1 then return end
+
+        local speed = 2 + ((Options.QuickTPSpeed and Options.QuickTPSpeed.Value or 3) / 4)
+
+        humanoidRootPart.CFrame += humanoid.MoveDirection * speed
+        quickTPCooldown = os.clock()
+    end)
+end)
+
+-- Click Tackle Aimbot feature
+pcall(function()
+    mouse.Button1Down:Connect(function()
+        if not Options.ClickTackleAimbot or not Options.ClickTackleAimbot.Value then return end
+
+        local possessor = findPossessor()
+        local character = player.Character
+        if not character or not possessor then return end
+
+        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+        local possessorHrp = possessor:FindFirstChild("HumanoidRootPart")
+
+        if not humanoidRootPart or not possessorHrp then return end
+
+        local distance = (possessorHrp.Position - humanoidRootPart.Position).Magnitude
+        if not Options.ClickTackleAimbotDistance or distance > Options.ClickTackleAimbotDistance.Value then return end
+
+        humanoidRootPart.CFrame = possessorHrp.CFrame
+    end)
+end)
+
+-- Player Tab UI Elements (previously problematic sliders)
+local SpeedToggle, SpeedValue
+local JumpPowerToggle, JumpPowerValue
+local AngleAssistToggle, AngleAssistJP
+
+pcall(function()
+    -- Speed controls with enhanced error handling
+    SpeedToggle = Tabs.Player:AddToggle("Speed", {
+        Title = "Speed",
+        Default = false,
+        Description = "Increases your movement speed"
+    })
+
+    -- Fixed speed slider with improved Rounding (main source of previous issues)
+    SpeedValue = Tabs.Player:AddSlider("SpeedValue", {
+        Title = "Speed",
+        Description = "Speed multiplier",
+        Default = 22,
+        Min = 20,
+        Max = 23,
+        Rounding = 1 -- Changed from 0 to 1 for smoother interaction
+    })
+
+    -- Jump power controls
+    JumpPowerToggle = Tabs.Player:AddToggle("JumpPower", {
+        Title = "Jump Power",
+        Default = false,
+        Description = "Increases your jump height"
+    })
+
+    -- Fixed jump power slider with improved Rounding
+    JumpPowerValue = Tabs.Player:AddSlider("JumpPowerValue", {
+        Title = "Power",
+        Description = "Jump power multiplier",
+        Default = 60,
+        Min = 50,
+        Max = 70,
+        Rounding = 1 -- Changed from 0 to 1 for smoother interaction
+    })
+
+    -- Angle assist controls
+    AngleAssistToggle = Tabs.Player:AddToggle("AngleAssist", {
+        Title = "Angle Assist",
+        Default = false,
+        Description = "Boosts your angles"
+    })
+
+    -- Fixed angle assist jump power slider with improved Rounding
+    AngleAssistJP = Tabs.Player:AddSlider("AngleAssistJP", {
+        Title = "JP",
+        Description = "Jump power for angle assist",
+        Default = 60,
+        Min = 50,
+        Max = 70,
+        Rounding = 1 -- Changed from 0 to 1 for smoother interaction
+    })
+end)
+
+-- Player Movement Function with improved error handling
+local function onCharacterMovement(character)
+    if not character then return end
+
+    -- Get humanoid with timeout
+    local humanoid
+    pcall(function()
+        humanoid = character:WaitForChild("Humanoid", 3)
+    end)
+    if not humanoid then return end
+
+    -- Get humanoid root part with timeout
+    local humanoidRootPart
+    pcall(function()
+        humanoidRootPart = character:WaitForChild("HumanoidRootPart", 3)
+    end)
+    if not humanoidRootPart then return end
+
+    -- Set jump power in AC_BYPASS mode
+    task.spawn(function()
+        while AC_BYPASS and humanoid and humanoid.Parent do
+            task.wait(0.1)
+            pcall(function()
+                if Options.JumpPower and Options.JumpPower.Value and Options.JumpPowerValue then
+                    humanoid.JumpPower = Options.JumpPowerValue.Value
+                else
+                    humanoid.JumpPower = 50
+                end
+            end)
+        end
+    end)
+
+    -- Handle jumping events
+    local jumpConnection
+    pcall(function()
+        jumpConnection = humanoid.Jumping:Connect(function()
+            if humanoid:GetState() ~= Enum.HumanoidStateType.Jumping then return end
+            if AC_BYPASS then return end
+
+            task.wait(0.05)
+            pcall(function()
+                if Options.JumpPower and Options.JumpPower.Value and Options.JumpPowerValue and humanoidRootPart then
+                    humanoidRootPart.AssemblyLinearVelocity += Vector3.new(0, Options.JumpPowerValue.Value - 50, 0)
+                end
+            end)
+        end)
+    end)
+
+    -- Clean up connection when character dies or is removed
+    task.spawn(function()
+        while humanoid and humanoid.Parent do
+            task.wait(1)
+        end
+
+        if jumpConnection then
+            pcall(function()
+                jumpConnection:Disconnect()
+            end)
+        end
+    end)
+end
+
+-- Implement walk speed modification with enhanced error handling
+pcall(function()
+    local renderStepConnection = runService:BindToRenderStep("walkSpeed", Enum.RenderPriority.Character.Value, function()
+        local character = player.Character
+        if not character then return end
+
+        local humanoid = character:FindFirstChild("Humanoid")
+        if not humanoid then return end
+
+        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+        if not humanoidRootPart then return end
+
+        if humanoid:GetState() ~= Enum.HumanoidStateType.Running then return end
+        if humanoid.WalkSpeed == 0 and not (Options.NoFreeze and Options.NoFreeze.Value) then return end
+
+        local moveDirection = nil
+
+        -- Calculate move direction safely
+        pcall(function()
+            if (os.clock() - (moveToUsing[#moveToUsing] or 0)) < 0.5 and humanoid.WalkToPoint then
+                moveDirection = (humanoid.WalkToPoint - humanoidRootPart.Position).Unit
+            else
+                moveDirection = humanoid.MoveDirection
+            end
+        end)
+
+        if not moveDirection then return end
+
+        local currentVel = humanoidRootPart.AssemblyLinearVelocity
+
+        pcall(function()
+            if (Options.Speed and Options.Speed.Value) or (Options.NoFreeze and Options.NoFreeze.Value) then
+                local speedVal = 20
+
+                if Options.Speed and Options.Speed.Value and Options.SpeedValue and Options.SpeedValue.Value > 20 then
+                    speedVal = Options.SpeedValue.Value
+                end
+
+                -- Safely set velocity to avoid errors
+                humanoidRootPart.AssemblyLinearVelocity = Vector3.new(
+                    moveDirection.X * speedVal,
+                    currentVel.Y,
+                    moveDirection.Z * speedVal
+                )
+            end
+        end)
+    end)
+
+    -- Cleanup when script unloads
+    task.spawn(function()
+        repeat task.wait(5) until not task or not runService
+        if renderStepConnection then
+            pcall(function()
+                runService:UnbindFromRenderStep("walkSpeed")
+            end)
+        end
+    end)
+end)
+
+-- Add angle assist functionality with improved error handling
+task.spawn(function()
+    local angleTick = os.clock()
+    local oldLookVector = Vector3.new(0, 0, 0)
+
+    local shiftLockEnabled = false
+    local lastEnabled = false
+
+    local function hookCharacter(char)
+        if not char then return end
+
+        local humanoid
+        pcall(function()
+            humanoid = char:WaitForChild("Humanoid", 3)
+        end)
+        if not humanoid then return end
+
+        local hrp
+        pcall(function()
+            hrp = char:WaitForChild("HumanoidRootPart", 3)
+        end)
+        if not hrp then return end
+
+        local jumpConnection
+        pcall(function()
+            jumpConnection = humanoid.Jumping:Connect(function()
+                if humanoid:GetState() ~= Enum.HumanoidStateType.Jumping then return end
+                if os.clock() - angleTick > 0.2 then return end
+                if not Options.AngleAssist or not Options.AngleAssist.Value then return end
+
+                if AC_BYPASS then return end
+
+                task.wait(0.05)
+                pcall(function()
+                    if hrp and hrp.Parent and Options.AngleAssistJP then
+                        hrp.AssemblyLinearVelocity += Vector3.new(0, Options.AngleAssistJP.Value - 50, 0)
+                    end
+                end)
+            end)
+        end)
+
+        -- Clean up connection when character dies or is removed
+        task.spawn(function()
+            while humanoid and humanoid.Parent do
+                task.wait(1)
+            end
+
+            if jumpConnection then
+                pcall(function()
+                    jumpConnection:Disconnect()
+                end)
+            end
+        end)
+    end
+
+    -- Hook current and future characters
+    if player.Character then
+        hookCharacter(player.Character)
+    end
+
+    local characterAddedConnection
+    pcall(function()
+        characterAddedConnection = player.CharacterAdded:Connect(hookCharacter)
+    end)
+
+    -- Monitor mouse behavior for angle assist
+    local mouseConnectionChange
+    pcall(function()
+        mouseConnectionChange = userInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
+            shiftLockEnabled = (userInputService.MouseBehavior == Enum.MouseBehavior.LockCenter)
+        end)
+    end)
+
+    -- Main angle assist loop
+    while true do
+        task.wait()
+
+        local character = player.Character
+        if not character then continue end
+
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+
+        local humanoid = character:FindFirstChild("Humanoid")
+        if not humanoid then continue end
+
+        -- Get current look vector safely
+        local lookVector
+        pcall(function()
+            lookVector = hrp.CFrame.LookVector
+        end)
+        if not lookVector then continue end
+
+        -- Track angle changes
+        if not shiftLockEnabled and lastEnabled then
+            angleTick = os.clock()
+        end
+
+        -- Adjust jump power for AC_BYPASS mode
+        if AC_BYPASS then
+            pcall(function()
+                if (os.clock() - angleTick < 0.2) and Options.AngleAssist and Options.AngleAssist.Value and Options.AngleAssistJP then
+                    humanoid.JumpPower = (Options.JumpPower and Options.JumpPower.Value and Options.JumpPowerValue and Options.JumpPowerValue.Value or 50) +
+                                        (Options.AngleAssistJP.Value - 50)
+                elseif not (Options.AngleAssist and Options.AngleAssist.Value) then
+                    humanoid.JumpPower = (Options.JumpPower and Options.JumpPower.Value and Options.JumpPowerValue and Options.JumpPowerValue.Value or 50)
+                end
+            end)
+        end
+
+        oldLookVector = lookVector
+        lastEnabled = shiftLockEnabled
+    end
+end)
+
+-- Handle character physics (anti-jam, anti-block, etc.)
+local function onCharacterPhysics(char)
+    if not char then return end
+
+    local humanoid
+    pcall(function()
+        humanoid = char:WaitForChild("Humanoid", 3)
+    end)
+    if not humanoid then return end
+
+    -- Handle FFmover destruction for anti-block
+    local descendantAddedConnection
+    pcall(function()
+        descendantAddedConnection = char.DescendantAdded:Connect(function(v)
+            task.wait()
+            pcall(function()
+                if v.Name:match("FFmover") and Options.AntiBlock and Options.AntiBlock.Value then
+                    v:Destroy()
+                end
+            end)
+        end)
+    end)
+
+    -- Monitor physics state
+    task.spawn(function()
+        while humanoid and humanoid.Parent do
+            task.wait()
+
+            -- Handle no jump cooldown
+            pcall(function()
+                if Options.NoJumpCooldown and Options.NoJumpCooldown.Value then
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+                end
+            end)
+
+            -- Handle anti-jam
+            pcall(function()
+                local torso = char:FindFirstChild("Torso")
+                local head = char:FindFirstChild("Head")
+
+                if not torso or not head then return end
+
+                if humanoid:GetState() == Enum.HumanoidStateType.Running and values and values.Status and values.Status.Value == "InPlay" then
+                    torso.CanCollide = not (Options.AntiJam and Options.AntiJam.Value)
+                    head.CanCollide = not (Options.AntiJam and Options.AntiJam.Value)
+                else
+                    torso.CanCollide = true
+                    head.CanCollide = true
+                end
+            end)
+        end
+
+        -- Clean up connections
+        if descendantAddedConnection then
+            pcall(function()
+                descendantAddedConnection:Disconnect()
+            end)
+        end
+    end)
+end
+
+-- Set up character connections
+if player.Character then
+    pcall(function()
+        onCharacterMovement(player.Character)
+        onCharacterPhysics(player.Character)
+    end)
+end
+
+-- Connect to future characters
+local characterAddedConnection
+pcall(function()
+    characterAddedConnection = player.CharacterAdded:Connect(function(char)
+        onCharacterMovement(char)
+        onCharacterPhysics(char)
+    end)
+end)
+
+-- Catching Tab UI Elements
+local MagnetsToggle, MagnetsType, MagnetsCustomRadius, ShowMagHitbox
+local PullVectorToggle, PullVectorDistance, PullVectorType, PullVectorPower
+
+pcall(function()
+    MagnetsToggle = Tabs.Catching:AddToggle("Magnets", {
+        Title = "Magnets",
+        Default = false,
+        Description = "Helps you catch the ball"
+    })
+
+    MagnetsType = Tabs.Catching:AddDropdown("MagnetsType", {
+        Title = "Type",
+        Values = {"Blatant", "Legit", "League"},
+        Default = "League",
+        Description = "How obvious the magnets behavior is"
+    })
+
+    MagnetsCustomRadius = Tabs.Catching:AddSlider("MagnetsCustomRadius", {
+        Title = "Radius",
+        Description = "Radius for the League type",
+        Default = 35,
+        Min = 0,
+        Max = 70,
+        Rounding = 1 -- Changed from 0 to 1 for smoother operation
+    })
+
+    ShowMagHitbox = Tabs.Catching:AddToggle("ShowMagHitbox", {
+        Title = "Visualise Hitbox",
+        Default = false,
+        Description = "Displays the mag hitbox"
+    })
+
+    PullVectorToggle = Tabs.Catching:AddToggle("PullVector", {
+        Title = "Pull Vector",
+        Default = false,
+        Description = "Pulls you towards the ball"
+    })
+
+    PullVectorDistance = Tabs.Catching:AddSlider("PullVectorDistance", {
+        Title = "Distance",
+        Description = "Maximum distance to activate pull",
+        Default = 50,
+        Min = 0,
+        Max = 100,
+        Rounding = 1 -- Changed from 0 to 1 for smoother operation
+    })
+
+    PullVectorType = Tabs.Catching:AddDropdown("PullVectorType", {
+        Title = "Type",
+        Values = {"Glide", "Teleport"},
+        Default = "Glide"
+    })
+
+    PullVectorPower = Tabs.Catching:AddSlider("PullVectorPower", {
+        Title = "Power",
+        Description = "Strength of the pull effect",
+        Default = 3,
+        Min = 1,
+        Max = 5,
+        Rounding = 1 -- Changed from 0 to 1 for smoother operation
+    })
+end)
+
+-- Define firetouchinterest for Solara with improved error handling
+if IS_SOLARA then
+    firetouchinterest = function(part2, part1, state)
+        if not part1 or not part2 then return end
+
+        if AC_BYPASS then
+            pcall(function()
+                part1.CFrame = part2.CFrame
+            end)
+        else
+            state = state == 1
+            local fakeBall = fakeBalls[part1]
+            if not fakeBall then return end
+
+            local direction
+            pcall(function()
+                direction = (part2.Position - fakeBall.Position).Unit
+            end)
+            if not direction then return end
+
+            local distance
+            pcall(function()
+                distance = (part2.Position - fakeBall.Position).Magnitude
+            end)
+            if not distance then return end
+
+            for i = 1, 5, 1 do
+                pcall(function()
+                    local percentage = i/5 + Random.new():NextNumber(0.01, 0.02)
+                    part1.CFrame = fakeBall.CFrame + (direction * distance * percentage)
+                end)
+            end
+        end
+    end
+end
+
+-- Catching detection function with error handling
+local function onCharacterCatching(character)
+    if not character then return end
+
+    local arm
+    pcall(function()
+        arm = character:WaitForChild('Left Arm', 3)
+    end)
+    if not arm then return end
+
+    local childAddedConnection
+    pcall(function()
+        childAddedConnection = arm.ChildAdded:Connect(function(child)
+            if not child:IsA("Weld") then return end
+            isCatching = true
+            task.wait(1.7)
+            isCatching = false
+        end)
+    end)
+
+    -- Clean up when character is removed
+    task.spawn(function()
+        while arm and arm.Parent do
+            task.wait(1)
+        end
+
+        if childAddedConnection then
+            pcall(function()
+                childAddedConnection:Disconnect()
+            end)
+        end
+    end)
+end
+
+-- Connect football ball handling with error handling
+local workspaceAddedConnection
+pcall(function()
+    workspaceAddedConnection = workspace.ChildAdded:Connect(function(ball)
+        if ball.Name ~= "Football" then return end
+        if not ball:IsA("BasePart") then return end
+        task.wait()
+
+        local lastPosition = ball.Position
+        local lastCheck = os.clock()
+        local initialVelocity
+
+        pcall(function()
+            initialVelocity = ball.AssemblyLinearVelocity
+        end)
+
+        -- Create fake ball for Solara with error handling
+        if IS_SOLARA then
+            pcall(function()
+                if ball:FindFirstChildWhichIsA("Trail") and not ball.Anchored and camera and camera.CameraSubject ~= ball then
+                    local fakeBall = ball:Clone()
+                    fakeBall.Name = "FFootball"
+                    fakeBall.Parent = workspace
+                    fakeBall.Anchored = true
+                    fakeBall.CanCollide = false
+
+                    pcall(function()
+                        if fakeBall:FindFirstChildWhichIsA('PointLight') then
+                            fakeBall:FindFirstChildWhichIsA('PointLight'):Destroy()
+                        end
+                    end)
+
+                    pcall(function()
+                        ball.Transparency = 1
+                    end)
+
+                    local spiralDegrees = 0
+                    fakeBalls[ball] = fakeBall
+
+                    task.spawn(function()
+                        local initialVelocityCopy = initialVelocity
+
+                        while ball and ball.Parent == workspace do
+                            local dt = 0
+                            pcall(function()
+                                dt = runService.Heartbeat:Wait()
+                            end)
+
+                            spiralDegrees += 1500 * dt
+                            initialVelocityCopy += Vector3.new(0, -28 * dt, 0)
+
+                            pcall(function()
+                                fakeBall.Position += initialVelocityCopy * dt
+                                fakeBall.CFrame = CFrame.lookAt(
+                                    fakeBall.Position,
+                                    fakeBall.Position + initialVelocityCopy
+                                ) * CFrame.Angles(math.rad(90), math.rad(spiralDegrees), 0)
+                            end)
+
+                            pcall(function()
+                                if ball:FindFirstChildWhichIsA("Trail") then
+                                    ball:FindFirstChildWhichIsA("Trail").Enabled = false
+                                end
+                            end)
+                        end
+
+                        pcall(function()
+                            if fakeBall and fakeBall.Parent then
+                                fakeBall:Destroy()
+                            end
+                        end)
+                    end)
+                end
+            end)
+        end
+
+        -- Track ball velocity with error handling
+        task.spawn(function()
+            while ball and ball.Parent do
+                task.wait(0.1)
+
+                local t = (os.clock() - lastCheck)
+                pcall(function()
+                    velocity[ball] = (ball.Position - lastPosition) / t
+                end)
+
+                lastCheck = os.clock()
+                lastPosition = ball.Position
+            end
+        end)
+
+        -- Handle ball trail with proper error handling
+        pcall(function()
+            if Options.NoBallTrail and Options.NoBallTrail.Value and ball:FindFirstChildWhichIsA("Trail") then
+                ball:FindFirstChildWhichIsA("Trail").Enabled = false
+            end
+        end)
+
+        -- Optimal jump indicator with error handling
+        task.spawn(function()
+            if not (Options.OptimalJump and Options.OptimalJump.Value) then return end
+
+            local initialVelocity
+            pcall(function()
+                initialVelocity = ball.AssemblyLinearVelocity
+            end)
+            if not initialVelocity then return end
+
+            local optimalPosition = Vector3.zero
+            local currentPosition = ball.Position
+            local t = 0
+
+            pcall(function()
+                while true do
+                    t += 0.05
+                    initialVelocity += Vector3.new(0, -28 * 0.05, 0)
+                    currentPosition += initialVelocity * 0.05
+
+                    local raycastParams = RaycastParams.new()
+                    raycastParams.FilterDescendantsInstances = {workspace:FindFirstChild("Models")}
+                    raycastParams.FilterType = Enum.RaycastFilterType.Include
+
+                    local jumpDepth = (Options.OptimalJumpType and Options.OptimalJumpType.Value == "Jump") and -13 or -15
+
+                    local ray = workspace:Raycast(
+                        currentPosition,
+                        Vector3.new(0, jumpDepth, 0),
+                        raycastParams
+                    )
+
+                    local antiCrashRay = workspace:Raycast(
+                        currentPosition,
+                        Vector3.new(0, -500, 0),
+                        raycastParams
+                    )
+
+                    if ray and t > 0.75 then
+                        optimalPosition = ray.Position + Vector3.new(0, 2, 0)
+                        break
+                    end
+
+                    if not antiCrashRay then
+                        optimalPosition = currentPosition
+                        break
+                    end
+                end
+            end)
+
+            local jumpIndicator
+            pcall(function()
+                jumpIndicator = Instance.new("Part")
+                jumpIndicator.Anchored = true
+                jumpIndicator.Material = Enum.Material.Neon
+                jumpIndicator.Size = Vector3.new(1.5, 1.5, 1.5)
+                jumpIndicator.Position = optimalPosition
+                jumpIndicator.CanCollide = false
+                jumpIndicator.Color = Color3.fromRGB(85, 170, 255) -- Light blue color
+                jumpIndicator.Parent = workspace
+            end)
+
+            repeat
+                task.wait()
+            until not ball or ball.Parent ~= workspace
+
+            pcall(function()
+                if jumpIndicator and jumpIndicator.Parent then
+                    jumpIndicator:Destroy()
+                end
+            end)
+        end)
+
+        -- Ball path visualization with error handling
+        task.spawn(function()
+            if not (Options.VisualizeBallPath and Options.VisualizeBallPath.Value) then return end
+
+            local initialVelocity
+            pcall(function()
+                initialVelocity = ball.AssemblyLinearVelocity
+            end)
+            if not initialVelocity then return end
+
+            local a0, a1, beam
+            pcall(function()
+                a0 = Instance.new("Attachment")
+                a1 = Instance.new("Attachment")
+                a0.Parent = workspace.Terrain
+                a1.Parent = workspace.Terrain
+
+                beam = Instance.new("Beam", workspace.Terrain)
+                beam.Attachment0 = a0
+                beam.Attachment1 = a1
+                beam.Segments = 500
+                beam.Width0 = 0.5
+                beam.Width1 = 0.5
+                beam.Transparency = NumberSequence.new(0)
+                beam.Color = ColorSequence.new(Color3.fromRGB(85, 170, 255)) -- Light blue color
+            end)
+
+            pcall(function()
+                local g = Vector3.new(0, -28, 0)
+                local x0 = ball.Position
+                local v0 = initialVelocity
+
+                local curve0, curve1, cf1, cf2 = beamProjectile(g, v0, x0, 5)
+
+                beam.CurveSize0 = curve0
+                beam.CurveSize1 = curve1
+                a0.CFrame = a0.Parent.CFrame:inverse() * cf1
+                a1.CFrame = a1.Parent.CFrame:inverse() * cf2
+            end)
+
+            repeat
+                task.wait()
+            until not ball or ball.Parent ~= workspace
+
+            pcall(function()
+                if beam and beam.Parent then
+                    beam:Destroy()
+                end
+                if a0 and a0.Parent then
+                    a0:Destroy()
+                end
+                if a1 and a1.Parent then
+                    a1:Destroy()
+                end
+            end)
+        end)
+    end)
+end)
+
+-- Magnets functionality with enhanced error handling
+task.spawn(function()
+    while true do
+        task.wait(1/60)
+
+        -- Get closest ball with error handling
+        local ball = findClosestBall()
+        if not ball then
+            pcall(function()
+                if part and part.Parent then
+                    part.Parent = nil
+                end
+            end)
+            continue
+        end
+
+        local character = player.Character
+        if not character then continue end
+
+        -- Get catch parts with error handling
+        local catchLeft, catchRight
+        pcall(function()
+            catchLeft = character:FindFirstChild("CatchLeft")
+            catchRight = character:FindFirstChild("CatchRight")
+        end)
+
+        local catchParts = {catchLeft, catchRight}
+        local catchPart = getNearestPartToPartFromParts(ball, catchParts)
+
+        if not catchPart or not velocity[ball] then continue end
+
+        -- Only continue if magnets are enabled
+        if not (Options.Magnets and Options.Magnets.Value) then
+            pcall(function()
+                if part and part.Parent then
+                    part.Parent = nil
+                end
+            end)
+            continue
+        end
+
+        -- Handle LegitV2 type conversion for compatibility
+        pcall(function()
+            if Options.MagnetsType and Options.MagnetsType.Value == "LegitV2" then
+                Options.MagnetsType:SetValue("League")
+            end
+        end)
+
+        -- League type magnets with enhanced error handling
+        pcall(function()
+            if Options.MagnetsType and Options.MagnetsType.Value == "League" then
+                local ballToUse = fakeBalls[ball] or ball
+                local predictedPosition = ballToUse.Position + (velocity[ball] * ping)
+                local distance = (catchPart.Position - predictedPosition).Magnitude
+
+                -- Position hitbox visualization
+                pcall(function()
+                    part.Position = ballToUse.Position
+                    part.Size = Vector3.new(
+                        Options.MagnetsCustomRadius.Value,
+                        Options.MagnetsCustomRadius.Value,
+                        Options.MagnetsCustomRadius.Value
+                    )
+
+                    part.Parent = (Options.ShowMagHitbox and Options.ShowMagHitbox.Value) and workspace or nil
+                    part.Color = Color3.fromRGB(85, 170, 255) -- Light blue color
+                    part.Material = Enum.Material.ForceField
+                    part.Transparency = 0.6
+                end)
+
+                if not Options.MagnetsCustomRadius or distance > Options.MagnetsCustomRadius.Value then
+                    continue
+                end
+
+                -- Safely fire touch interest
+                pcall(function()
+                    firetouchinterest(catchPart, ball, 0)
+                    firetouchinterest(catchPart, ball, 1)
+                end)
+            else
+                -- Blatant or Legit type magnets with enhanced error handling
+                local distance
+                pcall(function()
+                    distance = (catchPart.Position - ball.Position).Magnitude
+                end)
+                if not distance then continue end
+
+                local radius = (Options.MagnetsType and Options.MagnetsType.Value == "Blatant") and 50 or 6
+
+                -- Position hitbox visualization
+                pcall(function()
+                    part.Position = (fakeBalls[ball] or ball).Position
+                    part.Size = Vector3.new(radius, radius, radius)
+                    part.Parent = (Options.ShowMagHitbox and Options.ShowMagHitbox.Value) and workspace or nil
+                    part.Color = Color3.fromRGB(85, 170, 255) -- Light blue color
+                    part.Material = Enum.Material.ForceField
+                    part.Transparency = 0.6
+                end)
+
+                if not isCatching and IS_SOLARA then
+                    continue
+                end
+
+                if distance < radius then
+                    pcall(function()
+                        firetouchinterest(catchPart, ball, 0)
+                        firetouchinterest(catchPart, ball, 1)
+                    end)
+                end
+            end
+        end)
+    end
+end)
+
+-- Pull vector functionality with enhanced error handling
+task.spawn(function()
+    while true do
+        task.wait()
+
+        local ball = findClosestBall()
+        if not ball then continue end
+
+        local character = player.Character
+        if not character then continue end
+
+        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+        if not humanoidRootPart then continue end
+
+        local hasTrail = false
+        pcall(function()
+            hasTrail = ball:FindFirstChildWhichIsA("Trail") ~= nil
+        end)
+        if not hasTrail then continue end
+
+        if not (Options.PullVector and Options.PullVector.Value) then continue end
+        if pullVectoredBalls[ball] then continue end
+
+        local isAnchored = false
+        pcall(function()
+            isAnchored = ball.Anchored
+        end)
+        if isAnchored then continue end
+
+        local distance
+        pcall(function()
+            distance = (humanoidRootPart.Position - ball.Position).Magnitude
+        end)
+        if not distance or not Options.PullVectorDistance or distance > Options.PullVectorDistance.Value then
+            continue
+        end
+
+        local direction
+        pcall(function()
+            direction = (ball.Position - humanoidRootPart.Position).Unit
+        end)
+        if not direction then continue end
+
+        pcall(function()
+            if Options.PullVectorType and Options.PullVectorType.Value == "Teleport" then
+                pullVectoredBalls[ball] = true
+                local dist = 10 + ((Options.PullVectorPower and Options.PullVectorPower.Value or 3) - 1) * 5
+                humanoidRootPart.CFrame += direction * dist
+            else
+                humanoidRootPart.AssemblyLinearVelocity = direction *
+                    (Options.PullVectorPower and Options.PullVectorPower.Value or 3) * 25
+            end
+        end)
+    end
+end)
+
+-- Apply big head effect to other players
+task.spawn(function()
+    local function applyChanges(character)
+        if not character then return end
+
+        local head = character:FindFirstChild("Head")
+        if not head then return end
+
+        local mesh = head:FindFirstChildWhichIsA("SpecialMesh")
+        if not mesh then return end
+
+        pcall(function()
+            if Options.BigHead and Options.BigHead.Value then
+                mesh.MeshType = Enum.MeshType.Sphere
+                head.Size = Vector3.new(
+                    Options.BigHeadSize and Options.BigHeadSize.Value or 3,
+                    1,
+                    Options.BigHeadSize and Options.BigHeadSize.Value or 3
+                )
+            else
+                mesh.MeshType = Enum.MeshType.Head
+                head.Size = Vector3.new(2, 1, 1)
+            end
+        end)
+    end
+
+    while true do
+        task.wait()
+
+        pcall(function()
+            for _, plr in pairs(players:GetPlayers()) do
+                if plr == player then continue end
+                applyChanges(plr.Character)
+            end
+        end)
+    end
+end)
+
+-- Auto Tab UI Elements
+local AutoCapToggle, AutoCapEnabled
+
+pcall(function()
+    AutoCapToggle = Tabs.Auto:AddToggle("AutoCap", {
+        Title = "Auto Cap",
+        Default = false,
+        Description = "Makes you auto win the race for captain"
+    })
+
+    AutoCapEnabled = Tabs.Auto:AddToggle("AutoCapEnabled", {
+        Title = "Enabled",
+        Default = false,
+        Description = "Enable/disable auto cap feature"
+    })
+end)
+
+-- Throwing Tab (placeholder for future development)
+local QBAimbot
+
+pcall(function()
+    QBAimbot = Tabs.Throwing:AddToggle("QBAimbot", {
+        Title = "QB Aimbot",
+        Default = false,
+        Description = "Makes your throws more accurate"
+    })
+
+    Tabs.Throwing:AddParagraph({
+        Title = "Coming Soon",
+        Content = "QB Aimbot feature is currently in development."
+    })
+end)
+
+-- Implement AutoCap functionality with enhanced error handling
+local finishLine
+pcall(function()
+    finishLine = not IS_PRACTICE and workspace.Models.LockerRoomA.FinishLine or Instance.new('Part')
+end)
+
+task.spawn(function()
+    while true do
+        task.wait()
+
+        if not (Options.AutoCap and Options.AutoCap.Value and Options.AutoCapEnabled and Options.AutoCapEnabled.Value) then
+            continue
+        end
+
+        if IS_PRACTICE then continue end
+
+        local character = player.Character
+        if not character then continue end
+
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp or not finishLine then continue end
+
+        local distance
+        pcall(function()
+            distance = (hrp.Position - finishLine.Position).Magnitude
+        end)
+
+        if not distance or distance >= 10 then continue end
+
+        local possessor = findPossessor()
+        if not possessor then continue end
+
+        -- Check if local player is possessing the ball
+        if possessor == character then
+            pcall(function()
+                local event = game:GetService("ReplicatedStorage").Remotes.Touchdown
+                if event then
+                    event:FireServer()
+                end
+            end)
+        end
+    end
+end)
+
+-- Connect catching events to player's character
+if player.Character then
+    pcall(function()
+        onCharacterCatching(player.Character)
+    end)
+end
+
+local catchingConnection
+pcall(function()
+    catchingConnection = player.CharacterAdded:Connect(onCharacterCatching)
+end)
+
+-- Configuration and settings management with error handling
+pcall(function()
+    SaveManager:SetLibrary(Fluent)
+    InterfaceManager:SetLibrary(Fluent)
+    SaveManager:IgnoreThemeSettings()
+    SaveManager:SetIgnoreIndexes({})
+
+    InterfaceManager:SetFolder("EclipseHub")
+    SaveManager:SetFolder("EclipseHub/ff2")
+
+    InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+    SaveManager:BuildConfigSection(Tabs.Settings)
+end)
+
+-- Add save/load configuration buttons with enhanced error handling
+pcall(function()
+    Tabs.Settings:AddButton({
+        Title = "Save Config",
+        Description = "Save current configuration",
+        Callback = function()
+            pcall(function()
+                Fluent:Notify({
+                    Title = "Config System",
+                    Content = "Enter a name for your config in the prompt",
+                    Duration = 3
+                })
+
+                local configName = nil
+                local success, result = pcall(function()
+                    return Fluent:Prompt({
+                        Title = "Save Configuration",
+                        Content = "Enter a name for your configuration",
+                        TextBoxValue = "",
+                        Buttons = {
+                            {
+                                Title = "Save",
+                                Callback = function(textBoxValue)
+                                    configName = textBoxValue
+                                    return true
+                                end
+                            },
+                            {
+                                Title = "Cancel",
+                                Callback = function()
+                                    return false
+                                end
+                            }
+                        }
+                    })
+                end)
+
+                if success and result and configName and #configName > 0 then
+                    local exported = SaveManager:SaveConfiguration(configName)
+                    if exported then
+                        Fluent:Notify({
+                            Title = "Config System",
+                            Content = "Configuration saved as " .. configName,
+                            Duration = 3
+                        })
+                    end
+                end
+            end)
+        end
+    })
+
+    Tabs.Settings:AddButton({
+        Title = "Load Config",
+        Description = "Load a saved configuration",
+        Callback = function()
+            pcall(function()
+                SaveManager:LoadConfiguration()
+            end)
+        end
+    })
+end)
+
+-- Select first tab
+pcall(function()
+    Window:SelectTab(1)
+end)
+
+-- Final loaded notification
+pcall(function()
+    Fluent:Notify({
+        Title = "YxuSinX",
+        Content = "FF2 script successfully loaded. Enjoy the Script- by Veylo ❤️.",
+        Duration = 8
+    })
+end)
